@@ -1,0 +1,43 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+st.set_page_config(page_title="Personal Finance Dashboard", page_icon="💰", layout="wide")
+
+st.title("💰 Personal Finance Dashboard")
+st.write("Monitora le tue spese mensili e scopri dove vanno i tuoi soldi.")
+
+# Caricamento dati
+st.sidebar.header("📂 Carica il tuo file CSV")
+uploaded_file = st.sidebar.file_uploader("Scegli un file CSV", type=["csv"])
+
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+else:
+    st.info("⚠️ Nessun file caricato. Uso un esempio di default.")
+    data = {
+        "Data": ["2025-10-01", "2025-10-03", "2025-10-04", "2025-10-07", "2025-10-10"],
+        "Categoria": ["Cibo", "Trasporti", "Svago", "Cibo", "Affitto"],
+        "Importo (€)": [25.5, 10.0, 15.0, 30.0, 500.0]
+    }
+    df = pd.DataFrame(data)
+
+df["Data"] = pd.to_datetime(df["Data"])
+df = df.sort_values("Data")
+
+st.write("### 📋 Dati delle spese")
+st.dataframe(df)
+
+# Grafico per categoria
+spese_categoria = df.groupby("Categoria")["Importo (€)"].sum().reset_index()
+fig1 = px.pie(spese_categoria, names="Categoria", values="Importo (€)", title="Distribuzione delle spese")
+st.plotly_chart(fig1, use_container_width=True)
+
+# Andamento nel tempo
+spese_tempo = df.groupby("Data")["Importo (€)"].sum().reset_index()
+fig2 = px.line(spese_tempo, x="Data", y="Importo (€)", title="Andamento delle spese nel tempo", markers=True)
+st.plotly_chart(fig2, use_container_width=True)
+
+# Totale spese
+totale = df["Importo (€)"].sum()
+st.success(f"💸 Totale spese: **{totale:.2f} €**")
