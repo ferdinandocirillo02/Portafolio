@@ -1,0 +1,38 @@
+# convertitore_valuta.py
+# Un semplice convertitore di valuta per il portfolio
+
+def converti_valuta(importo_euro):
+    # Tassi di cambio (aggiornabili)
+    EUR_USD = 1.08
+    EUR_GBP = 0.85
+    EUR_JPY = 162.33
+
+    usd = importo_euro * EUR_USD
+    gbp = importo_euro * EUR_GBP
+    jpy = importo_euro * EUR_JPY
+
+    return usd, gbp, jpy
+
+
+def main():
+    print("💶 CONVERTITORE DI VALUTA 💱")
+    print("----------------------------")
+
+    try:
+        euro = float(input("Inserisci l'importo in EURO: "))
+    except ValueError:
+        print("Errore: devi inserire un numero!")
+        return
+
+    usd, gbp, jpy = converti_valuta(euro)
+
+    print(f"\nRisultati:")
+    print(f"{euro:.2f} EUR = {usd:.2f} USD")
+    print(f"{euro:.2f} EUR = {gbp:.2f} GBP")
+    print(f"{euro:.2f} EUR = {jpy:.2f} JPY")
+
+    print("\nGrazie per aver usato il convertitore 💰")
+
+
+if __name__ == "__main__":
+    main()
