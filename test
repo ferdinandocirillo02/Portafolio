@@ -1,0 +1,132 @@
+import serial
+import time
+import struct
+from datetime import datetime
+
+# =================================================================
+# === CONFIGURAZIONE UTENTE ===
+# =================================================================
+
+# VEDI QUI: Inserisci la porta seriale corretta per il tuo sistema (es. 'COM3' su Windows, '/dev/ttyUSB0' su Linux/Mac)
+PORTA = "COM3" 
+BAUDRATE = 115200
+
+# Pacchetto Dati Atteso: AA AA [H H T T] (6 byte totali)
+BYTE_HEADER = b'\xAA'
+LUNGHEZZA_HEADER = 2       # AA AA (2 byte)
+LUNGHEZZA_DATI_UTILI = 4   # H_RAW (2 byte) + T_RAW (2 byte)
+LUNGHEZZA_PACCHETTO_COMPLETO = LUNGHEZZA_HEADER + LUNGHEZZA_DATI_UTILI # 6 byte
+
+N_ITER = 100               # Numero di pacchetti da leggere
+TIMEOUT_SERIALE = 0.5      # Timeout di lettura (in secondi)
+
+# =================================================================
+# === FUNZIONI DI DECODIFICA ===
+# =================================================================
+
+def raw_a_celsius(raw):
+    """
+    Decodifica il valore RAW della temperatura in Celsius. 
+    Formula standard per molti sensori: T = -40 + 0.01 * T_RAW
+    """
+    # <<< MODIFICA QUI SE LA FORMULA E' DIVERSA >>>
+    return -40.0 + 0.01 * raw 
+
+# =================================================================
+# === INIZIO PROGRAMMA PRINCIPALE ===
+# =================================================================
+
+ser = None # Variabile seriale inizializzata per il blocco finally
+
+try: 
+    # 1. Apre la connessione seriale
+    print(f"Tentativo di connessione a {PORTA} @ {BAUDRATE}...")
+    ser = serial.Serial(PORTA, BAUDRATE, bytesize=8, parity='N', stopbits=1, timeout=TIMEOUT_SERIALE)
+    
+    # Nome del file di log
+    prova = "prova.log"
+    # Messaggio aggiornato per confermare la scrittura del file
+    print(f"Connessione OK. I dati verranno salvati su: {prova} - Inizio lettura ({N_ITER} iterazioni).")
+
+    # --- FASE DI LOG: APRE IL FILE E SCRIVE I DATI ---
+    with open(prova, 'w') as f:
+        # Intestazione del file di log
+        f.write("N.iter,Time,N_byte_letti,Bytes_Hex,H.RAW,T.RAW,T_decoded(°C)\n") 
+
+        for i in range(1, N_ITER + 1):
+            
+            # --- FASE DI SINCRONIZZAZIONE UNIFICATA: CERCA AA AA E CARICA I DATI ---
+            
+            # 1. Cerca il primo byte AA utilizzando un ciclo infinito
+            while True:
+                holder = ser.read(1)
+                
+                if not holder:
+                    print(f"\r⚠️ Timeout in attesa del 1° Header (AA) al ciclo {i}. Reset buffer e riprova...", end="")
+                    ser.reset_input_buffer() 
+                    continue # Torna subito al prossimo tentativo di lettura (dentro il while True)
+                
+                if holder == BYTE_HEADER:
+                    break # Trovato il primo byte AA: esci dal ciclo.
+                
+                else:
+                    # Condizione esplicita e superflua, ma richiesta:
+                    # Cattura un byte (holder non è vuoto) che non è l'header (holder != BYTE_HEADER).
+                    # Non facciamo nulla di speciale, lasciando che il ciclo while True riparta.
+                    continue 
+            
+            # A questo punto, holder contiene il primo AA.
+            
+            # 2. Legge i rimanenti 5 byte del pacchetto (AA [D D D D])
+            # Leggiamo i 5 byte rimanenti: il secondo header (1 byte) + i dati utili (4 byte)
+            pacchetto_rimanente = ser.read(LUNGHEZZA_PACCHETTO_COMPLETO - 1) 
+            
+            # Se la lettura non è completa, c'è stato un errore/timeout
+            if len(pacchetto_rimanente) < (LUNGHEZZA_PACCHETTO_COMPLETO - 1):
+                print(f"\r⚠️ Pacchetto incompleto (letti solo {len(pacchetto_rimanente) + 1} di {LUNGHEZZA_PACCHETTO_COMPLETO} byte totali) al ciclo {i}. Reset buffer...", end="")
+                ser.reset_input_buffer()
+                continue
+            
+            # 3. Verifica il secondo byte dell'header
+            header2 = pacchetto_rimanente[0:1] # Il secondo byte letto è il primo del rimanente
+            dati_utili = pacchetto_rimanente[1:] # I restanti 4 byte sono i dati utili
+
+            if header2 != BYTE_HEADER:
+                # Se il secondo byte non è AA, ignoriamo il primo AA che abbiamo trovato e ricominciamo la ricerca.
+                print(f"\r⚠️ Byte sfalsato. Trovato primo AA, ma il secondo è {header2.hex().upper()}. Ricerca del prossimo pacchetto...", end="")
+                continue
+            
+            # --- FASE 2 & 3: DECODIFICA E LOG (solo se AA AA è confermato) ---
+            
+            timestamp_lettura = datetime.now().strftime('%H:%M:%S.%f')[:-3] 
+            
+            # Decodifica dei 4 byte di dati utili. 
+            # Usiamo '>HH' per decodificare 2 unsigned short (H) in Big-Endian (>): H_RAW e T_RAW.
+            try:
+                h_raw, t_raw = struct.unpack('>HH', dati_utili)
+            except struct.error as e:
+                print(f"\r❌ Errore durante l'unpacking dei dati utili: {e}. Pacchetto: {dati_utili.hex().upper()}", end="")
+                continue
+            
+            t_dec = raw_a_celsius(t_raw)
+            
+            # Scrittura della riga completa
+            byte_completo = holder + pacchetto_rimanente # 6 byte totali
+            
+            riga = f"{i},{timestamp_lettura},{len(byte_completo)},{byte_completo.hex().upper()},{h_raw},{t_raw},{t_dec:.2f}\n"
+            f.write(riga)
+            
+            # Stampa a schermo
+            print(f"\rLettura {i}/{N_ITER} | T: {t_dec:.2f}°C, H: {h_raw} | OK", end="")
+            
+            # time.sleep(0.01) # Opzionale: Rallenta il ciclo
+    # --- FINE FASE DI LOG ---
+
+except serial.SerialException as e:
+    print(f"\n\n❌ ERRORE SERIALE: Impossibile connettersi o leggere. Controlla che la porta '{PORTA}' sia corretta e libera. Dettagli: {e}")
+except Exception as e:
+    print(f"\n\n❌ ERRORE GENERALE: {e}")
+finally:
+   if ser is not None and ser.isOpen():
+        ser.close()
+    print("\nProcesso terminato.")
